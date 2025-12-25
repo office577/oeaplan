@@ -2,504 +2,229 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Grundrissplaner – PDF-Ausgabe, 1:50, kompakt, alle Texte schwarz</title>
-  <!-- html2pdf.js von CDN -->
+  <title>Grundrissplaner Pro – Maßkorrektur</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <style>
-    :root {
-      --px-per-cm: 37.8; /* 1 cm Papier ≈ 37,8 px (bei 96 dpi) */
-    }
-    /* Fester Maßstab 1:50 – alle Eingaben in cm werden über cmToPx() umgerechnet */
+    :root { --px-per-cm: 37.8; --accent: #66bb6a; }
+    html, body { margin: 0; padding: 0; background-color: #eceff1; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; height: 100vh; display: flex; flex-direction: column; }
+    
+    #topBar { background: #37474f; color: white; padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
+    .toolbar { display: flex; gap: 8px; background: #fff; padding: 4px; border-radius: 6px; }
+    .toolbar button { background: var(--accent); border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; font-weight: bold; font-size: 13px; color: #000; }
+    
+    #mainContainer { display: flex; flex: 1; overflow: hidden; }
+    #sidePanel { width: 300px; background: #fff; border-right: 1px solid #cfd8dc; padding: 12px; overflow-y: auto; font-size: 13px; }
+    #sidePanel h3 { margin: 0 0 10px 0; border-bottom: 2px solid var(--accent); font-size: 16px; }
 
-    html, body {
-      margin: 0;
-      padding: 0;
-      background-color: #f5f5f5;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #000; /* Alle Texte schwarz */
-    }
-    h1, h2, h3, h4, p {
-      margin: 0;
-      padding: 0;
-    }
+    #printAreaWrapper { flex: 1; overflow: auto; padding: 20px; display: flex; justify-content: center; }
+    #printArea { width: 1587px; height: 1085px; background-color: #fff; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); flex-shrink: 0; }
+    
+    #planHeader { display: flex; justify-content: space-between; padding: 10px 20px; background-color: #f1f8e9; border-bottom: 1px solid #a5d6a7; align-items: center; }
+    #floorplan { width: 100%; height: calc(100% - 75px); position: relative; background-image: radial-gradient(#d1d1d1 0.5px, transparent 0.5px); background-size: 25px 25px; }
 
-    /* Eingabe-Bereich (nicht gedruckt) */
-    #headerContainer {
-      width: 800px;
-      margin: 20px auto;
-      padding: 20px;
-      background: #ddd;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-    }
-    #headerContainer h2 {
-      margin-bottom: 10px;
-      color: #000;
-    }
-    #headerContainer input {
-      width: 100%;
-      max-width: 380px;
-      margin: 5px 0;
-      padding: 8px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      color: #000;
-    }
+    .element { position: absolute; cursor: move; box-sizing: border-box; touch-action: none; }
+    .room { background-color: rgba(0,123,255,0.03); }
+    .wall { position: absolute; background-color: #78909c; pointer-events: none; }
+    .wall.außen { background-color: #263238; }
+    .door { background-color: #7B3F00; border: 1px solid #3e2723; }
+    .window { background-color: #bbdefb; border: 2px solid #0D47A1; }
+    .furniture { background-color: #cfd8dc; border: 1px solid #546e7a; }
+    
+    .selected { outline: 2px solid #f44336; outline-offset: 2px; }
+    .handle { position: absolute; width: 12px; height: 12px; border-radius: 50%; z-index: 10; }
+    .resize-handle { background: #f44336; right: -6px; bottom: -6px; cursor: se-resize; }
+    .rotate-handle { background: #4caf50; top: -30px; left: 50%; transform: translateX(-50%); cursor: alias; }
 
-    /* Toolbar */
-    .toolbar {
-      text-align: center;
-      margin: 15px auto;
-    }
-    .toolbar button {
-      background-color: #66bb6a;
-      color: #000;
-      border: none;
-      border-radius: 4px;
-      padding: 10px 20px;
-      font-size: 16px;
-      cursor: pointer;
-      margin: 5px;
-      transition: background 0.3s;
-    }
-    .toolbar button:hover {
-      background-color: #57a05a;
-    }
-    .toolbar button.northarrow {
-      background-color: #ffcc00;
-    }
+    .element-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 11px; font-weight: bold; pointer-events: none; text-align: center; white-space: pre; }
+    .wall-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 10px; background: white; padding: 1px 2px; border: 0.5px solid #000; }
 
-    /*
-      A3 Querformat bei 96 dpi: ca. 1587 x 1123 px.
-      Wir ziehen 38 px ab (1 cm) unten: 1587 x 1085 px.
-    */
-    #printArea {
-      width: 1587px;
-      height: 1085px;
-      margin: 0 auto;
-      background-color: #fff;
-      border: 1px solid #ccc;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-      position: relative;
-      overflow: hidden;
-    }
+    /* Maßketten Korrektur */
+    .dim-chain { position: absolute; pointer-events: none; }
+    .dim-line { position: absolute; background-color: #000; }
+    .dim-tick { position: absolute; background-color: #000; width: 1px !important; height: 10px !important; }
+    .dim-ext-label { position: absolute; font-size: 11px; font-weight: bold; background: white; padding: 0 3px; transform: translate(-50%, -50%); }
 
-    /* Kopfbereich (PlanHeader) – kompakt */
-    #planHeader {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      background-color: #c8e6c9;
-      color: #000;
-      border-bottom: 1px solid #a5d6a7;
-      padding: 5px 10px;
-    }
-    #planInfo {
-      display: flex;
-      flex-direction: column;
-      font-size: 14px;
-      line-height: 1.2;
-      margin: 0;
-      padding: 0;
-    }
-    #planInfo p {
-      margin: 2px 0;
-    }
-    /* Kein Maßstabstext */
-    #planExtra {
-      text-align: right;
-      font-size: 14px;
-      line-height: 1.2;
-    }
-    /* Legende – exakte Wandfarben: Innenwand (#888), Außenwand (#444) */
-    #legend {
-      font-size: 14px;
-      color: #000;
-      margin-bottom: 2px;
-    }
-    #legend .legend-box {
-      display: inline-block;
-      width: 18px;
-      height: 18px;
-      margin-right: 5px;
-      vertical-align: middle;
-      border: 1px solid #000;
-    }
-    #legend .legend-box.innen {
-      background-color: #888;
-    }
-    #legend .legend-box.außen {
-      background-color: #444;
-    }
-    #extraText {
-      font-size: 14px;
-      font-weight: bold;
-    }
+    input, select { width: 100%; padding: 5px; margin: 2px 0 8px 0; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; }
+    .group { margin-bottom: 10px; padding: 8px; background: #f9f9f9; border-radius: 4px; border: 1px solid #eee; }
+    .wall-row { display: flex; gap: 5px; align-items: center; margin-bottom: 3px; }
+    .wall-row label { width: 30px; font-weight: bold; }
 
-    /* Zeichenfläche (Floorplan) – restliche Höhe */
-    #floorplan {
-      width: 100%;
-      height: calc(100% - 40px); /* ca. 40px für den Kopf */
-      position: relative;
-      background-image:
-        linear-gradient(0deg, transparent 24%, rgba(0,0,0,0.1) 25%, rgba(0,0,0,0.1) 26%, transparent 27%, transparent 74%, rgba(0,0,0,0.1) 75%, rgba(0,0,0,0.1) 76%, transparent 77%, transparent),
-        linear-gradient(90deg, transparent 24%, rgba(0,0,0,0.1) 25%, rgba(0,0,0,0.1) 26%, transparent 27%, transparent 74%, rgba(0,0,0,0.1) 75%, rgba(0,0,0,0.1) 76%, transparent 77%, transparent);
-      background-size: 50px 50px;
-      transform: scale(1);
-      transform-origin: top left;
-      overflow: hidden;
-    }
-
-    /* Elemente (Räume, Türen, Fenster, Möbel, Nordpfeil) */
-    .element {
-      position: absolute;
-      cursor: move;
-      box-sizing: border-box;
-      touch-action: none;
-    }
-    .room {
-      background-color: rgba(0,123,255,0.05);
-    }
-    .wall {
-      position: absolute;
-      background-color: #888;
-      pointer-events: none;
-    }
-    .wall.außen {
-      background-color: #444;
-    }
-    .door {
-      background-color: #7B3F00;
-      border: 1px solid #5A2E00;
-    }
-    .window {
-      background-color: #0D47A1;
-      border: 1px solid #0B3D91;
-    }
-    .furniture {
-      background-color: #666;
-      border: 1px solid #444;
-    }
-    /* Nordpfeil – eigener Elementtyp */
-    .northarrow {
-      /* Größe wird über cmToPx() gesetzt */
-    }
-    .selected {
-      outline: 2px dashed red;
-    }
-    .resize-handle {
-      position: absolute;
-      width: 10px;
-      height: 10px;
-      background: red;
-      right: 0;
-      bottom: 0;
-      cursor: se-resize;
-      touch-action: none;
-    }
-    .rotate-handle {
-      position: absolute;
-      width: 10px;
-      height: 10px;
-      background: green;
-      top: -20px;
-      left: 50%;
-      transform: translateX(-50%);
-      cursor: pointer;
-      touch-action: none;
-    }
-    .element-label {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 14px;
-      font-weight: bold;
-      pointer-events: none;
-      color: #000;
-    }
-    .dim-label {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      font-size: 12px;
-      background: rgba(255,255,255,0.9);
-      padding: 2px 4px;
-      border-top-right-radius: 4px;
-      color: #000;
-    }
-    /* Neue CSS-Regel für die Wandstärken-Beschriftung */
-    .wall-label {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 12px;
-      font-weight: normal;
-      background: rgba(255,255,255,0.7);
-      padding: 2px 4px;
-      border-radius: 3px;
-      color: #000;
-      pointer-events: none;
-    }
-
-    /* Eigenschaften-Panel (nicht gedruckt) */
-    #propertiesPanel {
-      width: 800px;
-      margin: 20px auto;
-      background-color: #fff;
-      padding: 20px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-      color: #000;
-    }
-    #propertiesPanel h3 {
-      margin-bottom: 15px;
-      font-size: 20px;
-      color: #000;
-    }
-    #propertiesPanel div {
-      margin-bottom: 12px;
-    }
-    #propertiesPanel label {
-      display: inline-block;
-      width: 120px;
-      font-weight: bold;
-      color: #000;
-    }
-    #propertiesPanel input,
-    #propertiesPanel select {
-      padding: 8px;
-      width: 200px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      color: #000;
-    }
-
-    /* Print Styles – Direkte PDF-Ausgabe */
     @media print {
-      @page {
-        size: A3 landscape;
-        margin: 0;
-      }
-      html, body {
-        margin: 0;
-        padding: 0;
-      }
-      #printArea {
-        margin: 0;
-        position: static;
-        transform: none !important;
-      }
-      .resize-handle, .rotate-handle, .selected {
-        display: none !important;
-      }
-      #planHeader {
-        background-color: #fff !important;
-        color: #000 !important;
-        border-bottom: 1px solid #ccc !important;
-      }
-      #legend .legend-box.innen {
-        background-color: #888 !important;
-      }
-      #legend .legend-box.außen {
-        background-color: #444 !important;
-      }
+      body { background: white; }
+      #topBar, #sidePanel, .handle { display: none !important; }
+      #printAreaWrapper { padding: 0; }
+      #printArea { box-shadow: none; border: none; }
     }
   </style>
 </head>
 <body>
 
-<!-- Eingabe-Bereich (nicht gedruckt) -->
-<div id="headerContainer">
-  <h2>Projektinformationen</h2>
-  <div>
-    Projektname: <input type="text" id="projectName" value="Mein Projekt"><br>
-    Adresse: <input type="text" id="address" value="Musterstraße 1, 12345 Musterstadt"><br>
-    Planer: <input type="text" id="plannerName" value="Max Mustermann"><br>
-    Raumhöhe (cm): <input type="number" id="roomHeight" value="250"><br>
-    <button onclick="updateGlobalSettings()">Einstellungen übernehmen</button>
+<div id="topBar">
+  <div style="font-weight: bold;">Grundrissplaner 1:50</div>
+  <div class="toolbar">
+    <button onclick="addRoom()">+ Raum</button>
+    <button onclick="addDoor()">+ Tür</button>
+    <button onclick="addWindow()">+ Fenster</button>
+    <button onclick="addFurniture()">+ Möbel</button>
+    <button onclick="addNorthArrow()" style="background:#ffca28;">Nordpfeil</button>
+    <button onclick="printLayout()" style="background:#42a5f5; color:white;">PDF Export</button>
   </div>
 </div>
 
-<!-- Toolbar -->
-<div class="toolbar">
-  <button onclick="addRoom()">Raum hinzufügen</button>
-  <button onclick="addDoor()">Tür hinzufügen</button>
-  <button onclick="addWindow()">Fenster hinzufügen</button>
-  <button onclick="addFurniture()">Möbel hinzufügen</button>
-  <button onclick="addNorthArrow()" class="northarrow">Nordpfeil hinzufügen</button>
-  <button onclick="printLayout()">Drucken (PDF)</button>
-</div>
+<div id="mainContainer">
+  <div id="sidePanel">
+    <h3>Projekt-Info</h3>
+    Projekt: <input type="text" id="projectName" value="Neubau" oninput="updateGlobalSettings()">
+    Adresse: <input type="text" id="address" value="Musterweg 5" oninput="updateGlobalSettings()">
+    Raumhöhe (cm): <input type="number" id="roomHeight" value="250" oninput="updateGlobalSettings()">
 
-<!-- Druckbereich (1587 x 1085 px) -->
-<div id="printArea">
-  <div id="planHeader">
-    <div id="planInfo">
-      <h1 id="planProjectName" style="font-size:16px;margin:2px 0;">Projekt: Mein Projekt</h1>
-      <p>Adresse: <span id="planAddress">Musterstraße 1, 12345 Musterstadt</span></p>
-      <p>Planer: <span id="planPlannerName">Max Mustermann</span></p>
-      <p>Raumhöhe: <span id="planRoomHeight">250</span> cm</p>
-      <p>Datum: <span id="planDate"></span></p>
-    </div>
-    <div id="planExtra">
-      <div id="legend">
-        <div><span class="legend-box innen"></span>Innenwand</div>
-        <div><span class="legend-box außen"></span>Außenwand</div>
+    <div id="props" style="display:none;">
+      <h3>Eigenschaften</h3>
+      Breite (cm): <input type="number" id="propWidth" oninput="updateProperties()">
+      Höhe/Tiefe (cm): <input type="number" id="propHeight" oninput="updateProperties()">
+      Rotation (°): <input type="number" id="propRotation" oninput="updateProperties()">
+      
+      <div id="roomExtra" style="display:none;">
+        <strong>Wände (Stärke & Typ)</strong>
+        <div class="group">
+          <div class="wall-row"><label>Ob:</label><input type="number" id="propWallTop" oninput="updateProperties()"><select id="propWallTypeTop" oninput="updateProperties()"><option value="innen">innen</option><option value="außen">außen</option></select></div>
+          <div class="wall-row"><label>Re:</label><input type="number" id="propWallRight" oninput="updateProperties()"><select id="propWallTypeRight" oninput="updateProperties()"><option value="innen">innen</option><option value="außen">außen</option></select></div>
+          <div class="wall-row"><label>Un:</label><input type="number" id="propWallBottom" oninput="updateProperties()"><select id="propWallTypeBottom" oninput="updateProperties()"><option value="innen">innen</option><option value="außen">außen</option></select></div>
+          <div class="wall-row"><label>Li:</label><input type="number" id="propWallLeft" oninput="updateProperties()"><select id="propWallTypeLeft" oninput="updateProperties()"><option value="innen">innen</option><option value="außen">außen</option></select></div>
+        </div>
+        Bezeichnung: <input type="text" id="propRoomLabel" oninput="updateProperties()">
       </div>
-      <div id="extraText">mein-online-energieausweis.at</div>
+      <button onclick="deleteSelectedElement()" style="background:#ef5350; color:white; width:100%; border:none; padding:8px; border-radius:4px; cursor:pointer; font-weight:bold;">Löschen</button>
     </div>
   </div>
-  <div id="floorplan"></div>
-</div>
 
-<!-- Eigenschaften-Panel (nicht gedruckt) -->
-<div id="propertiesPanel">
-  <h3>Eigenschaften (Alle Maße in cm)</h3>
-  <div>
-    <label for="propWidth">Breite:</label>
-    <input type="number" id="propWidth" placeholder="cm">
-  </div>
-  <div>
-    <label for="propHeight">Höhe:</label>
-    <input type="number" id="propHeight" placeholder="cm">
-  </div>
-  <div>
-    <label for="propRotation">Rotation (°):</label>
-    <input type="number" id="propRotation">
-  </div>
-  <!-- Zusätzliche Felder für Räume -->
-  <div id="roomExtra" style="display:none;">
-    <h4>Raum-Wände</h4>
-    <div class="wall-prop">
-      <label for="propWallTop">Oben (cm):</label>
-      <input type="number" id="propWallTop" placeholder="cm">
-      <select id="propWallTypeTop">
-        <option value="innen">innen</option>
-        <option value="außen">außen</option>
-      </select>
+  <div id="printAreaWrapper">
+    <div id="printArea">
+      <div id="planHeader">
+        <div>
+          <strong id="planProjectName">Projekt: Neubau</strong><br>
+          <span id="planAddress" style="font-size:12px;">Musterweg 5</span>
+        </div>
+        <div style="text-align: center; font-weight: bold; font-size: 16px; color: #1b5e20;">
+          mein-online-energieausweis.at
+        </div>
+        <div style="text-align: right; font-size: 11px;">
+          Datum: <span id="planDate"></span><br>
+          Raumhöhe: <span id="planRoomHeight">250</span> cm
+        </div>
+      </div>
+      <div id="floorplan"></div>
     </div>
-    <div class="wall-prop">
-      <label for="propWallRight">Rechts (cm):</label>
-      <input type="number" id="propWallRight" placeholder="cm">
-      <select id="propWallTypeRight">
-        <option value="innen">innen</option>
-        <option value="außen">außen</option>
-      </select>
-    </div>
-    <div class="wall-prop">
-      <label for="propWallBottom">Unten (cm):</label>
-      <input type="number" id="propWallBottom" placeholder="cm">
-      <select id="propWallTypeBottom">
-        <option value="innen">innen</option>
-        <option value="außen">außen</option>
-      </select>
-    </div>
-    <div class="wall-prop">
-      <label for="propWallLeft">Links (cm):</label>
-      <input type="number" id="propWallLeft" placeholder="cm">
-      <select id="propWallTypeLeft">
-        <option value="innen">innen</option>
-        <option value="außen">außen</option>
-      </select>
-    </div>
-    <div>
-      <label for="propRoomLabel">Raumbezeichnung:</label>
-      <input type="text" id="propRoomLabel">
-    </div>
-  </div>
-  <!-- Für Türen, Fenster, Möbel -->
-  <div id="elemExtra" style="display:none;">
-    <div>
-      <label for="propText">Text:</label>
-      <input type="text" id="propText">
-    </div>
-  </div>
-  <div>
-    <button onclick="updateProperties()">Eigenschaften aktualisieren</button>
-    <button onclick="deleteSelectedElement()">Element löschen</button>
   </div>
 </div>
 
 <script>
-  const scaleFactor = 50; // Fester Maßstab 1:50
-  const pxPerCm = 37.8;   // 1 cm Papier ≈ 37.8 px
-  function cmToPx(val) {
-    return (val / scaleFactor) * pxPerCm;
-  }
-
+  const scaleFactor = 50; 
+  const pxPerCm = 37.8;   
   let selectedElement = null;
   let elementCounter = 0;
+
+  function cmToPx(val) { return (val / scaleFactor) * pxPerCm; }
 
   function updateGlobalSettings() {
     document.getElementById("planProjectName").innerText = "Projekt: " + document.getElementById("projectName").value;
     document.getElementById("planAddress").innerText = document.getElementById("address").value;
-    document.getElementById("planPlannerName").innerText = document.getElementById("plannerName").value;
     document.getElementById("planRoomHeight").innerText = document.getElementById("roomHeight").value;
     document.getElementById("planDate").innerText = new Date().toLocaleDateString();
-    document.querySelectorAll('.room').forEach(updateRoomLabel);
   }
 
-  function updateRoomLabel(el) {
-    if (!el.classList.contains("room")) return;
+  function updateElementLabel(el) {
     let label = el.querySelector(".element-label");
     if (!label) return;
-    const realWidth = el.dataset.realWidth;
-    const realHeight = el.dataset.realHeight;
-    const area = ((realWidth * realHeight) / 10000).toFixed(2);
-    label.innerText = (el.dataset.roomLabel || el.id) + " (" + realWidth + " x " + realHeight + " cm, " + area + " m²)";
+    const w = el.dataset.realWidth;
+    const h = el.dataset.realHeight;
+    if (el.classList.contains("room")) {
+      const area = ((w * h) / 10000).toFixed(2);
+      label.innerText = (el.dataset.roomLabel || "Raum") + "\n" + w + "x" + h + "\n" + area + " m²";
+    } else {
+      let type = el.classList.contains("door") ? "TÜR" : el.classList.contains("window") ? "FENSTER" : "MÖBEL";
+      label.innerText = type + "\n" + w + " x " + h;
+    }
   }
 
   function updateRoomWalls(el) {
-    const walls = ['Top', 'Right', 'Bottom', 'Left'];
-    walls.forEach(pos => {
-      let wallDiv = el.querySelector(".wall-" + pos.toLowerCase());
-      if (!wallDiv) return;
-      let thickness = el.dataset["wall" + pos] ? parseFloat(el.dataset["wall" + pos]) : 0;
-      let type = el.dataset["wallType" + pos] || "innen";
-      if (type === "außen") {
-        wallDiv.classList.add("außen");
-      } else {
-        wallDiv.classList.remove("außen");
+    const t = parseFloat(el.dataset.wallTop || 0), r = parseFloat(el.dataset.wallRight || 0);
+    const b = parseFloat(el.dataset.wallBottom || 0), l = parseFloat(el.dataset.wallLeft || 0);
+    const rw = parseFloat(el.dataset.realWidth), rh = parseFloat(el.dataset.realHeight);
+
+    ['top', 'right', 'bottom', 'left'].forEach(pos => {
+      let wallDiv = el.querySelector(".wall-" + pos);
+      let thickness = parseFloat(el.dataset["wall" + pos.charAt(0).toUpperCase() + pos.slice(1)]);
+      let type = el.dataset["wallType" + pos.charAt(0).toUpperCase() + pos.slice(1)];
+      wallDiv.className = "wall wall-" + pos + (type === "außen" ? " außen" : "");
+
+      if(pos === 'top') {
+        wallDiv.style.top = -cmToPx(t) + "px"; wallDiv.style.left = -cmToPx(l) + "px";
+        wallDiv.style.width = cmToPx(rw + l + r) + "px"; wallDiv.style.height = cmToPx(t) + "px";
+      } else if(pos === 'bottom') {
+        wallDiv.style.bottom = -cmToPx(b) + "px"; wallDiv.style.left = -cmToPx(l) + "px";
+        wallDiv.style.width = cmToPx(rw + l + r) + "px"; wallDiv.style.height = cmToPx(b) + "px";
+      } else if(pos === 'left') {
+        wallDiv.style.left = -cmToPx(l) + "px"; wallDiv.style.top = "0px";
+        wallDiv.style.width = cmToPx(l) + "px"; wallDiv.style.height = cmToPx(rh) + "px";
+      } else if(pos === 'right') {
+        wallDiv.style.right = -cmToPx(r) + "px"; wallDiv.style.top = "0px";
+        wallDiv.style.width = cmToPx(r) + "px"; wallDiv.style.height = cmToPx(rh) + "px";
       }
-      if(pos === "Top"){
-        wallDiv.style.top = -cmToPx(thickness) + "px";
-        wallDiv.style.left = "0px";
-        wallDiv.style.width = cmToPx(el.dataset.realWidth) + "px";
-        wallDiv.style.height = cmToPx(thickness) + "px";
-      } else if(pos === "Bottom"){
-        wallDiv.style.bottom = -cmToPx(thickness) + "px";
-        wallDiv.style.left = "0px";
-        wallDiv.style.width = cmToPx(el.dataset.realWidth) + "px";
-        wallDiv.style.height = cmToPx(thickness) + "px";
-      } else if(pos === "Left"){
-        wallDiv.style.left = -cmToPx(thickness) + "px";
-        wallDiv.style.top = "0px";
-        wallDiv.style.width = cmToPx(thickness) + "px";
-        wallDiv.style.height = cmToPx(el.dataset.realHeight) + "px";
-      } else if(pos === "Right"){
-        wallDiv.style.right = -cmToPx(thickness) + "px";
-        wallDiv.style.top = "0px";
-        wallDiv.style.width = cmToPx(thickness) + "px";
-        wallDiv.style.height = cmToPx(el.dataset.realHeight) + "px";
-      }
-      // Neue Funktionalität: Wandstärke-Beschriftung
+      let wl = wallDiv.querySelector(".wall-label");
       if (thickness > 0) {
-        let wallLabel = wallDiv.querySelector(".wall-label");
-        if (!wallLabel) {
-          wallLabel = document.createElement("span");
-          wallLabel.className = "wall-label";
-          wallDiv.appendChild(wallLabel);
-        }
-        wallLabel.innerText = thickness + " cm";
-      } else {
-        let wallLabel = wallDiv.querySelector(".wall-label");
-        if (wallLabel) {
-          wallLabel.remove();
-        }
-      }
+        if (!wl) { wl = document.createElement("span"); wl.className = "wall-label"; wallDiv.appendChild(wl); }
+        wl.innerText = thickness;
+      } else if (wl) wl.remove();
     });
+    updateDimensionChain(el, rw, rh, t, r, b, l);
+  }
+
+  function updateDimensionChain(el, rw, rh, t, r, b, l) {
+    let dimH = el.querySelector(".dim-chain-h"), dimV = el.querySelector(".dim-chain-v");
+    if(!dimH) {
+      dimH = document.createElement("div"); dimH.className = "dim-chain dim-chain-h";
+      dimH.innerHTML = '<div class="dim-line"></div><div class="dim-tick t1"></div><div class="dim-tick t2"></div><div class="dim-ext-label"></div>';
+      el.appendChild(dimH);
+    }
+    if(!dimV) {
+      dimV = document.createElement("div"); dimV.className = "dim-chain dim-chain-v";
+      dimV.innerHTML = '<div class="dim-line"></div><div class="dim-tick t1"></div><div class="dim-tick t2"></div><div class="dim-ext-label"></div>';
+      el.appendChild(dimV);
+    }
+    const offset = 35, totalW = rw + l + r, totalH = rh + t + b;
+    
+    // Horizontale Kette (Oben)
+    dimH.style.top = (-cmToPx(t) - offset) + "px"; 
+    dimH.style.left = -cmToPx(l) + "px"; 
+    dimH.style.width = cmToPx(totalW) + "px";
+    dimH.querySelector(".dim-line").style.width = "100%"; 
+    dimH.querySelector(".dim-line").style.height = "1px"; 
+    dimH.querySelector(".t1").style.left = "0"; 
+    dimH.querySelector(".t1").style.transform = "rotate(45deg)";
+    dimH.querySelector(".t2").style.right = "0"; 
+    dimH.querySelector(".t2").style.transform = "rotate(45deg)";
+    dimH.querySelector(".dim-ext-label").innerText = totalW; 
+    dimH.querySelector(".dim-ext-label").style.left = "50%";
+    dimH.querySelector(".dim-ext-label").style.top = "0";
+
+    // Vertikale Kette (Links) - Fixierte Darstellung
+    dimV.style.left = (-cmToPx(l) - offset) + "px"; 
+    dimV.style.top = -cmToPx(t) + "px"; 
+    dimV.style.height = cmToPx(totalH) + "px";
+    dimV.style.width = "1px";
+    dimV.querySelector(".dim-line").style.height = "100%"; 
+    dimV.querySelector(".dim-line").style.width = "1px";
+    dimV.querySelector(".t1").style.top = "0"; 
+    dimV.querySelector(".t1").style.left = "-5px";
+    dimV.querySelector(".t1").style.transform = "rotate(45deg)";
+    dimV.querySelector(".t2").style.bottom = "0"; 
+    dimV.querySelector(".t2").style.left = "-5px";
+    dimV.querySelector(".t2").style.transform = "rotate(45deg)";
+    dimV.querySelector(".dim-ext-label").innerText = totalH; 
+    dimV.querySelector(".dim-ext-label").style.top = "50%";
+    dimV.querySelector(".dim-ext-label").style.left = "0";
+    dimV.querySelector(".dim-ext-label").style.transform = "translate(-50%, -50%) rotate(-90deg)";
   }
 
   function createElement(type, defaults) {
@@ -507,492 +232,128 @@
     const el = document.createElement("div");
     el.classList.add("element", type);
     el.id = type + elementCounter;
+    el.style.left = defaults.left + "px"; el.style.top = defaults.top + "px";
+    let visH = (type === "door" || type === "window") ? 15 : defaults.height;
+    el.style.width = cmToPx(defaults.width) + "px"; el.style.height = cmToPx(visH) + "px";
+    el.dataset.realWidth = defaults.width; el.dataset.realHeight = defaults.height;
 
-    const drawWidth = cmToPx(defaults.width);
-    const drawHeight = cmToPx(defaults.height);
-    el.style.left = defaults.left + "px";
-    el.style.top = defaults.top + "px";
-    el.style.width = drawWidth + "px";
-    el.style.height = drawHeight + "px";
-    el.dataset.realWidth = defaults.width;
-    el.dataset.realHeight = defaults.height;
-
+    const label = document.createElement("div"); label.className = "element-label"; el.appendChild(label);
     if (type === "room") {
-      el.dataset.wallTop = defaults.wallTop || 10;
-      el.dataset.wallRight = defaults.wallRight || 10;
-      el.dataset.wallBottom = defaults.wallBottom || 10;
-      el.dataset.wallLeft = defaults.wallLeft || 10;
-      el.dataset.wallTypeTop = defaults.wallTypeTop || "innen";
-      el.dataset.wallTypeRight = defaults.wallTypeRight || "innen";
-      el.dataset.wallTypeBottom = defaults.wallTypeBottom || "innen";
-      el.dataset.wallTypeLeft = defaults.wallTypeLeft || "innen";
-      el.dataset.roomLabel = defaults.roomLabel || ("Raum " + elementCounter);
-
-      const roomLabel = document.createElement("div");
-      roomLabel.className = "element-label";
-      roomLabel.innerText = el.dataset.roomLabel;
-      el.appendChild(roomLabel);
-
-      ["top", "right", "bottom", "left"].forEach(pos => {
-        const wallDiv = document.createElement("div");
-        wallDiv.className = "wall wall-" + pos;
-        el.appendChild(wallDiv);
-      });
+      Object.assign(el.dataset, { wallTop: 10, wallRight: 10, wallBottom: 10, wallLeft: 10, wallTypeTop: "innen", wallTypeRight: "innen", wallTypeBottom: "innen", wallTypeLeft: "innen", roomLabel: "Raum " + elementCounter });
+      ['top', 'right', 'bottom', 'left'].forEach(p => { let w = document.createElement("div"); w.className = "wall wall-" + p; el.appendChild(w); });
+      updateRoomWalls(el);
+    } else if (type === "northarrow") {
+        el.innerHTML = `<svg width="80" height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="display:block;"><path d="M50 2 L15 45 H40 V98 H60 V45 H85 Z" fill="black" stroke="white" stroke-width="2"/><text x="50" y="32" fill="white" font-size="16" text-anchor="middle" font-weight="bold">N</text></svg>`;
     }
-    else if (type === "door" || type === "window") {
-      el.dataset.enteredHeight = defaults.height;
-      el.style.height = cmToPx(20) + "px"; // fix: 20 cm sollen gezeichnet werden
-      const elemLabel = document.createElement("div");
-      elemLabel.className = "element-label";
-      elemLabel.innerText = (type === "door" ? "Tür" : "Fenster") + " (" + defaults.width + " x " + defaults.height + " cm)";
-      el.appendChild(elemLabel);
-      el.dataset.realWidth = defaults.width;
-      el.dataset.realHeight = defaults.height;
-    }
-    else if (type === "furniture") {
-      el.dataset.elemText = defaults.elemText || ("Möbel " + elementCounter);
-      const elemLabel = document.createElement("div");
-      elemLabel.className = "element-label";
-      elemLabel.innerText = el.dataset.elemText + " (" + defaults.width + " x " + defaults.height + " cm)";
-      el.appendChild(elemLabel);
-      el.dataset.realWidth = defaults.width;
-      el.dataset.realHeight = defaults.height;
-    }
-    else if (type === "northarrow") {
-      if (!defaults.width) defaults.width = 80;
-      if (!defaults.height) defaults.height = 80;
-      const drawnWidth = cmToPx(defaults.width);
-      const drawnHeight = cmToPx(defaults.height);
-      el.style.width = drawnWidth + "px";
-      el.style.height = drawnHeight + "px";
-      const svgNS = "http://www.w3.org/2000/svg";
-      const svg = document.createElementNS(svgNS, "svg");
-      svg.setAttribute("width", drawnWidth);
-      svg.setAttribute("height", drawnHeight);
-      svg.setAttribute("viewBox", "0 0 100 100");
-      const polygon = document.createElementNS(svgNS, "polygon");
-      polygon.setAttribute("points", "50,5 20,40 40,40 40,95 60,95 60,40 80,40");
-      polygon.setAttribute("fill", "#000");
-      svg.appendChild(polygon);
-      el.appendChild(svg);
-    }
-
-    if (type !== "door" && type !== "window" && type !== "northarrow") {
-      const dimLabel = document.createElement("div");
-      dimLabel.className = "dim-label";
-      dimLabel.innerText = defaults.width + " x " + defaults.height + " cm";
-      el.appendChild(dimLabel);
-    }
-
-    const resizeHandle = document.createElement("div");
-    resizeHandle.className = "resize-handle";
-    el.appendChild(resizeHandle);
-    const rotateHandle = document.createElement("div");
-    rotateHandle.className = "rotate-handle";
-    el.appendChild(rotateHandle);
-
-    el.addEventListener("pointerdown", function(e) {
-      if(e.target.classList.contains("resize-handle") || e.target.classList.contains("rotate-handle")) return;
-      selectElement(el);
-    });
-
-    makeDraggable(el);
-    makeResizable(el, resizeHandle);
-    makeRotatable(el, rotateHandle);
-
+    updateElementLabel(el);
+    const rH = document.createElement("div"); rH.className = "handle resize-handle"; el.appendChild(rH);
+    const roH = document.createElement("div"); roH.className = "handle rotate-handle"; el.appendChild(roH);
+    el.addEventListener("pointerdown", (e) => { if(!e.target.classList.contains("handle")) selectElement(el); });
+    makeDraggable(el); makeResizable(el, rH); makeRotatable(el, roH);
     document.getElementById("floorplan").appendChild(el);
-    if (type === "room") updateRoomLabel(el);
-  }
-
-  function addNorthArrow() {
-    createElement("northarrow", { left: 10, top: 10, width: 80, height: 80 });
-  }
-
-  function updateDimensionLabel(el, label) {
-    label.innerText = el.dataset.realWidth + " x " + el.dataset.realHeight + " cm";
+    selectElement(el);
   }
 
   function makeDraggable(el) {
-    el.addEventListener('pointerdown', function(e) {
-      if (e.target.classList.contains('resize-handle') || e.target.classList.contains('rotate-handle')) return;
-      e.preventDefault();
-      let startX = e.clientX;
-      let startY = e.clientY;
-      let origX = el.offsetLeft;
-      let origY = el.offsetTop;
-      function pointerMoveHandler(e) {
-        let dx = e.clientX - startX;
-        let dy = e.clientY - startY;
-        el.style.left = (origX + dx) + 'px';
-        el.style.top = (origY + dy) + 'px';
-        if (el === selectedElement) updatePropertiesPanel();
-      }
-      function pointerUpHandler() {
-        document.removeEventListener('pointermove', pointerMoveHandler);
-        document.removeEventListener('pointerup', pointerUpHandler);
-      }
-      document.addEventListener('pointermove', pointerMoveHandler);
-      document.addEventListener('pointerup', pointerUpHandler);
+    el.addEventListener('pointerdown', e => {
+      if (e.target.classList.contains('handle')) return;
+      let sx = e.clientX, sy = e.clientY, ox = el.offsetLeft, oy = el.offsetTop;
+      const move = e => { el.style.left = (ox + e.clientX - sx) + 'px'; el.style.top = (oy + e.clientY - sy) + 'px'; };
+      const stop = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); };
+      document.addEventListener('pointermove', move); document.addEventListener('pointerup', stop);
     });
   }
 
   function makeResizable(el, handle) {
-    handle.addEventListener('pointerdown', function(e) {
+    handle.addEventListener('pointerdown', e => {
       e.stopPropagation();
-      e.preventDefault();
-      let startX = e.clientX;
-      let startY = e.clientY;
-      let startWidth = parseFloat(window.getComputedStyle(el).width);
-      let startHeight = parseFloat(window.getComputedStyle(el).height);
-      let dimLabel = el.querySelector(".dim-label");
-      function pointerMoveHandler(e) {
-        let newWidth = startWidth + (e.clientX - startX);
-        let newHeight = startHeight + (e.clientY - startY);
-        if(el.classList.contains("door") || el.classList.contains("window")){
-          newHeight = cmToPx(20);
-        }
-        el.style.width = newWidth + 'px';
-        el.style.height = newHeight + 'px';
-        if(dimLabel) updateDimensionLabel(el, dimLabel);
-        if(el.classList.contains("room")) updateRoomLabel(el);
-        if (el === selectedElement) updatePropertiesPanel();
-        if(el.classList.contains("door") || el.classList.contains("window")){
-          let label = el.querySelector(".element-label");
-          if(label){
-            label.innerText = (el.classList.contains("door") ? "Tür" : "Fenster")
-                              + " (" + el.dataset.realWidth + " x " + el.dataset.realHeight + " cm)";
-          }
-        }
-        if(el.classList.contains("furniture")){
-          let label = el.querySelector(".element-label");
-          if(label){
-            label.innerText = el.dataset.elemText + " (" + el.dataset.realWidth + " x " + el.dataset.realHeight + " cm)";
-          }
-        }
-      }
-      function pointerUpHandler() {
-        document.removeEventListener('pointermove', pointerMoveHandler);
-        document.removeEventListener('pointerup', pointerUpHandler);
-      }
-      document.addEventListener('pointermove', pointerMoveHandler);
-      document.addEventListener('pointerup', pointerUpHandler);
+      let sx = e.clientX, sy = e.clientY, sw = el.offsetWidth, sh = el.offsetHeight;
+      const move = e => {
+        let nw = sw + (e.clientX - sx), nh = sh + (e.clientY - sy);
+        el.style.width = nw + "px"; 
+        if (!el.classList.contains("door") && !el.classList.contains("window")) el.style.height = nh + "px";
+        el.dataset.realWidth = Math.round((nw / pxPerCm) * scaleFactor);
+        if (!el.classList.contains("door") && !el.classList.contains("window")) el.dataset.realHeight = Math.round((nh / pxPerCm) * scaleFactor);
+        updateElementLabel(el); if(el.classList.contains("room")) updateRoomWalls(el);
+        updatePropertiesPanel();
+      };
+      const stop = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); };
+      document.addEventListener('pointermove', move); document.addEventListener('pointerup', stop);
     });
   }
 
   function makeRotatable(el, handle) {
-    handle.addEventListener('pointerdown', function(e) {
+    handle.addEventListener('pointerdown', e => {
       e.stopPropagation();
-      e.preventDefault();
-      let rect = el.getBoundingClientRect();
-      let centerX = rect.left + rect.width / 2;
-      let centerY = rect.top + rect.height / 2;
-      let startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
-      let initialRotation = el._currentRotation || 0;
-      function pointerMoveHandler(e) {
-        let currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
-        let angleDiff = currentAngle - startAngle;
-        let newRotation = initialRotation + angleDiff * (180/Math.PI);
-        el.style.transform = 'rotate(' + newRotation + 'deg)';
-        el._currentRotation = newRotation;
-        if (el === selectedElement) updatePropertiesPanel();
-      }
-      function pointerUpHandler() {
-        document.removeEventListener('pointermove', pointerMoveHandler);
-        document.removeEventListener('pointerup', pointerUpHandler);
-      }
-      document.addEventListener('pointermove', pointerMoveHandler);
-      document.addEventListener('pointerup', pointerUpHandler);
+      let rect = el.getBoundingClientRect(), cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+      let startAngle = Math.atan2(e.clientY - cy, e.clientX - cx), initialRot = el._rot || 0;
+      const move = e => {
+        let ang = Math.atan2(e.clientY - cy, e.clientX - cx);
+        el._rot = initialRot + (ang - startAngle) * (180/Math.PI);
+        el.style.transform = `rotate(${el._rot}deg)`;
+        updatePropertiesPanel();
+      };
+      const stop = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); };
+      document.addEventListener('pointermove', move); document.addEventListener('pointerup', stop);
     });
   }
 
   function selectElement(el) {
-    if(selectedElement) {
-      selectedElement.classList.remove("selected");
-    }
-    selectedElement = el;
-    selectedElement.classList.add("selected");
+    if(selectedElement) selectedElement.classList.remove("selected");
+    selectedElement = el; selectedElement.classList.add("selected");
+    document.getElementById("props").style.display = "block";
     updatePropertiesPanel();
   }
 
   function updatePropertiesPanel() {
     if(!selectedElement) return;
-    document.getElementById("propWidth").value = Math.round((parseFloat(selectedElement.style.width) * scaleFactor) / pxPerCm);
-    document.getElementById("propHeight").value = Math.round((parseFloat(selectedElement.style.height) * scaleFactor) / pxPerCm);
-    document.getElementById("propRotation").value = Math.round(selectedElement._currentRotation || 0);
-
-    if(selectedElement.classList.contains("room")){
-      document.getElementById("roomExtra").style.display = "block";
-      document.getElementById("propWallTop").value = selectedElement.dataset.wallTop;
-      document.getElementById("propWallRight").value = selectedElement.dataset.wallRight;
-      document.getElementById("propWallBottom").value = selectedElement.dataset.wallBottom;
-      document.getElementById("propWallLeft").value = selectedElement.dataset.wallLeft;
-      document.getElementById("propWallTypeTop").value = selectedElement.dataset.wallTypeTop;
-      document.getElementById("propWallTypeRight").value = selectedElement.dataset.wallTypeRight;
-      document.getElementById("propWallTypeBottom").value = selectedElement.dataset.wallTypeBottom;
-      document.getElementById("propWallTypeLeft").value = selectedElement.dataset.wallTypeLeft;
+    document.getElementById("propWidth").value = selectedElement.dataset.realWidth;
+    document.getElementById("propHeight").value = selectedElement.dataset.realHeight;
+    document.getElementById("propRotation").value = Math.round(selectedElement._rot || 0);
+    const isRoom = selectedElement.classList.contains("room");
+    document.getElementById("roomExtra").style.display = isRoom ? "block" : "none";
+    if(isRoom) {
+      ['Top','Right','Bottom','Left'].forEach(p => {
+          document.getElementById("propWall" + p).value = selectedElement.dataset["wall"+p];
+          document.getElementById("propWallType" + p).value = selectedElement.dataset["wallType"+p];
+      });
       document.getElementById("propRoomLabel").value = selectedElement.dataset.roomLabel;
-      document.getElementById("elemExtra").style.display = "none";
-    } else {
-      document.getElementById("roomExtra").style.display = "none";
-      if(selectedElement.classList.contains("door") || selectedElement.classList.contains("window") || selectedElement.classList.contains("furniture")){
-        document.getElementById("elemExtra").style.display = "block";
-        let label = selectedElement.querySelector(".element-label");
-        document.getElementById("propText").value = label ? label.innerText.split(" (")[0] : "";
-      } else {
-        document.getElementById("elemExtra").style.display = "none";
-      }
     }
   }
 
   function updateProperties() {
     if(!selectedElement) return;
-    let newWidth = document.getElementById("propWidth").value;
-    let newHeight = document.getElementById("propHeight").value;
-
-    selectedElement.dataset.realWidth = newWidth;
-    selectedElement.dataset.realHeight = newHeight;
-
-    if(selectedElement.classList.contains("door") || selectedElement.classList.contains("window")){
-      selectedElement.style.width = cmToPx(newWidth) + "px";
-      // Fix: Höhe wird fix 20 cm gezeichnet, Label soll aber den eingegebenen Höhenwert anzeigen
-      selectedElement.style.height = cmToPx(20) + "px";
-      selectedElement.dataset.enteredHeight = newHeight;
-    } else {
-      selectedElement.style.width = cmToPx(newWidth) + "px";
-      selectedElement.style.height = cmToPx(newHeight) + "px";
-    }
-
-    let rotation = document.getElementById("propRotation").value;
-    selectedElement.style.transform = 'rotate(' + rotation + 'deg)';
-    selectedElement._currentRotation = rotation;
-
-    if(selectedElement.classList.contains("room")){
-      selectedElement.dataset.wallTop = document.getElementById("propWallTop").value;
-      selectedElement.dataset.wallRight = document.getElementById("propWallRight").value;
-      selectedElement.dataset.wallBottom = document.getElementById("propWallBottom").value;
-      selectedElement.dataset.wallLeft = document.getElementById("propWallLeft").value;
-      selectedElement.dataset.wallTypeTop = document.getElementById("propWallTypeTop").value;
-      selectedElement.dataset.wallTypeRight = document.getElementById("propWallTypeRight").value;
-      selectedElement.dataset.wallTypeBottom = document.getElementById("propWallTypeBottom").value;
-      selectedElement.dataset.wallTypeLeft = document.getElementById("propWallTypeLeft").value;
+    const w = document.getElementById("propWidth").value, h = document.getElementById("propHeight").value;
+    selectedElement.dataset.realWidth = w; selectedElement.dataset.realHeight = h;
+    selectedElement.style.width = cmToPx(w) + "px";
+    if (!selectedElement.classList.contains("door") && !selectedElement.classList.contains("window")) selectedElement.style.height = cmToPx(h) + "px";
+    selectedElement._rot = document.getElementById("propRotation").value;
+    selectedElement.style.transform = `rotate(${selectedElement._rot}deg)`;
+    updateElementLabel(selectedElement);
+    if(selectedElement.classList.contains("room")) {
+      ['Top','Right','Bottom','Left'].forEach(p => {
+          selectedElement.dataset["wall"+p] = document.getElementById("propWall" + p).value;
+          selectedElement.dataset["wallType"+p] = document.getElementById("propWallType" + p).value;
+      });
       selectedElement.dataset.roomLabel = document.getElementById("propRoomLabel").value;
-      updateRoomLabel(selectedElement);
       updateRoomWalls(selectedElement);
     }
-    else if(selectedElement.classList.contains("door") || selectedElement.classList.contains("window") || selectedElement.classList.contains("furniture")){
-      let newText = document.getElementById("propText").value;
-      let label = selectedElement.querySelector(".element-label");
-      if(label){
-        label.innerText = (selectedElement.classList.contains("door") ? "Tür" : (selectedElement.classList.contains("window") ? "Fenster" : selectedElement.dataset.elemText))
-                              + " (" + newWidth + " x " + newHeight + " cm)";
-      }
-    }
   }
 
-  function deleteSelectedElement() {
-    if(selectedElement) {
-      selectedElement.remove();
-      selectedElement = null;
-      document.getElementById("propWidth").value = "";
-      document.getElementById("propHeight").value = "";
-      document.getElementById("propRotation").value = "";
-      document.getElementById("propWallTop").value = "";
-      document.getElementById("propWallRight").value = "";
-      document.getElementById("propWallBottom").value = "";
-      document.getElementById("propWallLeft").value = "";
-      document.getElementById("propRoomLabel").value = "";
-      document.getElementById("propText").value = "";
-    }
-  }
+  function deleteSelectedElement() { if(selectedElement) { selectedElement.remove(); selectedElement = null; document.getElementById("props").style.display = "none"; } }
+  function addRoom() { createElement("room", { left: 100, top: 100, width: 400, height: 300 }); }
+  function addDoor() { createElement("door", { left: 150, top: 150, width: 80, height: 210 }); }
+  function addWindow() { createElement("window", { left: 200, top: 200, width: 120, height: 140 }); }
+  function addFurniture() { createElement("furniture", { left: 250, top: 250, width: 100, height: 60 }); }
+  function addNorthArrow() { createElement("northarrow", { left: 50, top: 50, width: 60, height: 60 }); }
 
-  function addRoom() {
-    createElement("room", {
-      left: 50,
-      top: 50,
-      width: 400,  // 400 cm real
-      height: 300, // 300 cm real
-      wallTop: 10,
-      wallRight: 10,
-      wallBottom: 10,
-      wallLeft: 10,
-      wallTypeTop: "außen",
-      wallTypeRight: "außen",
-      wallTypeBottom: "außen",
-      wallTypeLeft: "außen",
-      roomLabel: "Raum " + elementCounter
-    });
-  }
-  function addDoor() {
-    createElement("door", {
-      left: 100,
-      top: 100,
-      width: 80,
-      height: 210
-    });
-  }
-  function addWindow() {
-    createElement("window", {
-      left: 150,
-      top: 150,
-      width: 120,
-      height: 100
-    });
-  }
-  function addFurniture() {
-    createElement("furniture", {
-      left: 200,
-      top: 200,
-      width: 100,
-      height: 60,
-      elemText: "Möbel: Sofa"
-    });
-  }
-  function addNorthArrow() {
-    createElement("northarrow", { left: 10, top: 10, width: 80, height: 80 });
-  }
-
-  // Direkte PDF-Ausgabe mittels html2pdf
   function printLayout() {
+    updateGlobalSettings();
     const element = document.getElementById("printArea");
-    const opt = {
-      margin: 0,
-      filename: 'Grundrissplan.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, scrollX: 0, scrollY: 0 },
-      jsPDF: { unit: 'px', format: [1587, 1085], orientation: 'landscape' }
-    };
-    html2pdf().set(opt).from(element).save().catch(function(err) {
-       console.error("PDF-Erstellungsfehler: ", err);
-       alert("PDF-Erstellung ist fehlgeschlagen. Bitte prüfe die Konsole.");
-    });
+    html2pdf().set({ margin: 0, filename: 'Plan.pdf', jsPDF: { unit: 'px', format: [1587, 1085], orientation: 'landscape' } }).from(element).save();
   }
-
-  function makeDraggable(el) {
-    el.addEventListener('pointerdown', function(e) {
-      if (e.target.classList.contains('resize-handle') || e.target.classList.contains('rotate-handle')) return;
-      e.preventDefault();
-      let startX = e.clientX;
-      let startY = e.clientY;
-      let origX = el.offsetLeft;
-      let origY = el.offsetTop;
-      function pointerMoveHandler(e) {
-        let dx = e.clientX - startX;
-        let dy = e.clientY - startY;
-        el.style.left = (origX + dx) + 'px';
-        el.style.top = (origY + dy) + 'px';
-        if (el === selectedElement) updatePropertiesPanel();
-      }
-      function pointerUpHandler() {
-        document.removeEventListener('pointermove', pointerMoveHandler);
-        document.removeEventListener('pointerup', pointerUpHandler);
-      }
-      document.addEventListener('pointermove', pointerMoveHandler);
-      document.addEventListener('pointerup', pointerUpHandler);
-    });
-  }
-
-  function makeResizable(el, handle) {
-    handle.addEventListener('pointerdown', function(e) {
-      e.stopPropagation();
-      e.preventDefault();
-      let startX = e.clientX;
-      let startY = e.clientY;
-      let startWidth = parseFloat(window.getComputedStyle(el).width);
-      let startHeight = parseFloat(window.getComputedStyle(el).height);
-      let dimLabel = el.querySelector(".dim-label");
-      function pointerMoveHandler(e) {
-        let newWidth = startWidth + (e.clientX - startX);
-        let newHeight = startHeight + (e.clientY - startY);
-        if(el.classList.contains("door") || el.classList.contains("window")){
-          newHeight = cmToPx(20);
-        }
-        el.style.width = newWidth + 'px';
-        el.style.height = newHeight + 'px';
-        if(dimLabel) updateDimensionLabel(el, dimLabel);
-        if(el.classList.contains("room")) updateRoomLabel(el);
-        if (el === selectedElement) updatePropertiesPanel();
-        if(el.classList.contains("door") || el.classList.contains("window")){
-          let label = el.querySelector(".element-label");
-          if(label){
-            label.innerText = (el.classList.contains("door") ? "Tür" : "Fenster")
-                              + " (" + el.dataset.realWidth + " x " + el.dataset.realHeight + " cm)";
-          }
-        }
-        if(el.classList.contains("furniture")){
-          let label = el.querySelector(".element-label");
-          if(label){
-            label.innerText = el.dataset.elemText + " (" + el.dataset.realWidth + " x " + el.dataset.realHeight + " cm)";
-          }
-        }
-      }
-      function pointerUpHandler() {
-        document.removeEventListener('pointermove', pointerMoveHandler);
-        document.removeEventListener('pointerup', pointerUpHandler);
-      }
-      document.addEventListener('pointermove', pointerMoveHandler);
-      document.addEventListener('pointerup', pointerUpHandler);
-    });
-  }
-
-  function makeRotatable(el, handle) {
-    handle.addEventListener('pointerdown', function(e) {
-      e.stopPropagation();
-      e.preventDefault();
-      let rect = el.getBoundingClientRect();
-      let centerX = rect.left + rect.width / 2;
-      let centerY = rect.top + rect.height / 2;
-      let startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
-      let initialRotation = el._currentRotation || 0;
-      function pointerMoveHandler(e) {
-        let currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
-        let angleDiff = currentAngle - startAngle;
-        let newRotation = initialRotation + angleDiff * (180/Math.PI);
-        el.style.transform = 'rotate(' + newRotation + 'deg)';
-        el._currentRotation = newRotation;
-        if (el === selectedElement) updatePropertiesPanel();
-      }
-      function pointerUpHandler() {
-        document.removeEventListener('pointermove', pointerMoveHandler);
-        document.removeEventListener('pointerup', pointerUpHandler);
-      }
-      document.addEventListener('pointermove', pointerMoveHandler);
-      document.addEventListener('pointerup', pointerUpHandler);
-    });
-  }
-
-  function selectElement(el) {
-    if(selectedElement) {
-      selectedElement.classList.remove("selected");
-    }
-    selectedElement = el;
-    selectedElement.classList.add("selected");
-    updatePropertiesPanel();
-  }
-
-  function updateDimensionLabel(el, label) {
-    label.innerText = el.dataset.realWidth + " x " + el.dataset.realHeight + " cm";
-  }
-
-  // Direkte PDF-Ausgabe mittels html2pdf
-  function printLayout() {
-    const element = document.getElementById("printArea");
-    const opt = {
-      margin: 0,
-      filename: 'Grundrissplan.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, scrollX: 0, scrollY: 0 },
-      jsPDF: { unit: 'px', format: [1587, 1085], orientation: 'landscape' }
-    };
-    html2pdf().set(opt).from(element).save().catch(function(err) {
-       console.error("PDF-Erstellungsfehler: ", err);
-       alert("PDF-Erstellung ist fehlgeschlagen. Bitte prüfe die Konsole.");
-    });
-  }
-
-  function addNorthArrow() {
-    createElement("northarrow", { left: 10, top: 10, width: 80, height: 80 });
-  }
+  
+  updateGlobalSettings();
 </script>
-
 </body>
 </html>
