@@ -2,21 +2,61 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Grundrissplaner Pro – Maßkorrektur</title>
+  <title>Grundrissplaner Pro – Einklappbares Menü</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <style>
-    :root { --px-per-cm: 37.8; --accent: #66bb6a; }
-    html, body { margin: 0; padding: 0; background-color: #eceff1; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; height: 100vh; display: flex; flex-direction: column; }
+    :root { --px-per-cm: 37.8; --accent: #66bb6a; --panel-width: 300px; }
+    html, body { margin: 0; padding: 0; background-color: #eceff1; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #000; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
     
-    #topBar { background: #37474f; color: white; padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
+    #topBar { background: #37474f; color: white; padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 1000; }
     .toolbar { display: flex; gap: 8px; background: #fff; padding: 4px; border-radius: 6px; }
     .toolbar button { background: var(--accent); border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; font-weight: bold; font-size: 13px; color: #000; }
     
-    #mainContainer { display: flex; flex: 1; overflow: hidden; }
-    #sidePanel { width: 300px; background: #fff; border-right: 1px solid #cfd8dc; padding: 12px; overflow-y: auto; font-size: 13px; }
+    #mainContainer { display: flex; flex: 1; overflow: hidden; position: relative; }
+
+    /* SEITENMENÜ STYLES */
+    #sidePanel { 
+      width: var(--panel-width); 
+      background: #fff; 
+      border-right: 1px solid #cfd8dc; 
+      padding: 12px; 
+      overflow-y: auto; 
+      font-size: 13px; 
+      transition: transform 0.3s ease; 
+      position: relative;
+      z-index: 500;
+    }
+    #sidePanel.closed {
+      transform: translateX(-100%);
+      margin-right: calc(var(--panel-width) * -1); /* Platzhalter entfernen */
+    }
+
+    /* TOGGLE BUTTON */
+    #menuToggle {
+      position: absolute;
+      left: var(--panel-width);
+      top: 15px;
+      background: #37474f;
+      color: white;
+      border: none;
+      width: 25px;
+      height: 40px;
+      cursor: pointer;
+      border-radius: 0 4px 4px 0;
+      z-index: 1100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: left 0.3s ease;
+      font-weight: bold;
+    }
+    #sidePanel.closed + #menuToggle {
+      left: 0;
+    }
+
     #sidePanel h3 { margin: 0 0 10px 0; border-bottom: 2px solid var(--accent); font-size: 16px; }
 
-    #printAreaWrapper { flex: 1; overflow: auto; padding: 20px; display: flex; justify-content: center; }
+    #printAreaWrapper { flex: 1; overflow: auto; padding: 20px; display: flex; justify-content: center; background-color: #cfd8dc; }
     #printArea { width: 1587px; height: 1085px; background-color: #fff; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); flex-shrink: 0; }
     
     #planHeader { display: flex; justify-content: space-between; padding: 10px 20px; background-color: #f1f8e9; border-bottom: 1px solid #a5d6a7; align-items: center; }
@@ -38,20 +78,19 @@
     .element-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 11px; font-weight: bold; pointer-events: none; text-align: center; white-space: pre; }
     .wall-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 10px; background: white; padding: 1px 2px; border: 0.5px solid #000; }
 
-    /* Maßketten Korrektur */
     .dim-chain { position: absolute; pointer-events: none; }
     .dim-line { position: absolute; background-color: #000; }
     .dim-tick { position: absolute; background-color: #000; width: 1px !important; height: 10px !important; }
     .dim-ext-label { position: absolute; font-size: 11px; font-weight: bold; background: white; padding: 0 3px; transform: translate(-50%, -50%); }
 
-    input, select { width: 100%; padding: 5px; margin: 2px 0 8px 0; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; }
+    input, select { width: 100%; padding: 5px; margin: 2px 0 8px 0; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; box-sizing: border-box; }
     .group { margin-bottom: 10px; padding: 8px; background: #f9f9f9; border-radius: 4px; border: 1px solid #eee; }
     .wall-row { display: flex; gap: 5px; align-items: center; margin-bottom: 3px; }
     .wall-row label { width: 30px; font-weight: bold; }
 
     @media print {
       body { background: white; }
-      #topBar, #sidePanel, .handle { display: none !important; }
+      #topBar, #sidePanel, #menuToggle, .handle { display: none !important; }
       #printAreaWrapper { padding: 0; }
       #printArea { box-shadow: none; border: none; }
     }
@@ -98,6 +137,8 @@
     </div>
   </div>
 
+  <button id="menuToggle" onclick="toggleMenu()">◀</button>
+
   <div id="printAreaWrapper">
     <div id="printArea">
       <div id="planHeader">
@@ -125,6 +166,19 @@
   let elementCounter = 0;
 
   function cmToPx(val) { return (val / scaleFactor) * pxPerCm; }
+
+  // NEUE FUNKTION FÜR DAS MENÜ
+  function toggleMenu() {
+    const panel = document.getElementById("sidePanel");
+    const toggleBtn = document.getElementById("menuToggle");
+    panel.classList.toggle("closed");
+    
+    if (panel.classList.contains("closed")) {
+      toggleBtn.innerText = "▶";
+    } else {
+      toggleBtn.innerText = "◀";
+    }
+  }
 
   function updateGlobalSettings() {
     document.getElementById("planProjectName").innerText = "Projekt: " + document.getElementById("projectName").value;
@@ -193,37 +247,16 @@
       el.appendChild(dimV);
     }
     const offset = 35, totalW = rw + l + r, totalH = rh + t + b;
-    
-    // Horizontale Kette (Oben)
-    dimH.style.top = (-cmToPx(t) - offset) + "px"; 
-    dimH.style.left = -cmToPx(l) + "px"; 
-    dimH.style.width = cmToPx(totalW) + "px";
-    dimH.querySelector(".dim-line").style.width = "100%"; 
-    dimH.querySelector(".dim-line").style.height = "1px"; 
-    dimH.querySelector(".t1").style.left = "0"; 
-    dimH.querySelector(".t1").style.transform = "rotate(45deg)";
-    dimH.querySelector(".t2").style.right = "0"; 
-    dimH.querySelector(".t2").style.transform = "rotate(45deg)";
-    dimH.querySelector(".dim-ext-label").innerText = totalW; 
-    dimH.querySelector(".dim-ext-label").style.left = "50%";
-    dimH.querySelector(".dim-ext-label").style.top = "0";
-
-    // Vertikale Kette (Links) - Fixierte Darstellung
-    dimV.style.left = (-cmToPx(l) - offset) + "px"; 
-    dimV.style.top = -cmToPx(t) + "px"; 
-    dimV.style.height = cmToPx(totalH) + "px";
-    dimV.style.width = "1px";
-    dimV.querySelector(".dim-line").style.height = "100%"; 
-    dimV.querySelector(".dim-line").style.width = "1px";
-    dimV.querySelector(".t1").style.top = "0"; 
-    dimV.querySelector(".t1").style.left = "-5px";
-    dimV.querySelector(".t1").style.transform = "rotate(45deg)";
-    dimV.querySelector(".t2").style.bottom = "0"; 
-    dimV.querySelector(".t2").style.left = "-5px";
-    dimV.querySelector(".t2").style.transform = "rotate(45deg)";
-    dimV.querySelector(".dim-ext-label").innerText = totalH; 
-    dimV.querySelector(".dim-ext-label").style.top = "50%";
-    dimV.querySelector(".dim-ext-label").style.left = "0";
+    dimH.style.top = (-cmToPx(t) - offset) + "px"; dimH.style.left = -cmToPx(l) + "px"; dimH.style.width = cmToPx(totalW) + "px";
+    dimH.querySelector(".dim-line").style.width = "100%"; dimH.querySelector(".dim-line").style.height = "1px"; 
+    dimH.querySelector(".t1").style.left = "0"; dimH.querySelector(".t1").style.transform = "rotate(45deg)";
+    dimH.querySelector(".t2").style.right = "0"; dimH.querySelector(".t2").style.transform = "rotate(45deg)";
+    dimH.querySelector(".dim-ext-label").innerText = totalW; dimH.querySelector(".dim-ext-label").style.left = "50%"; dimH.querySelector(".dim-ext-label").style.top = "0";
+    dimV.style.left = (-cmToPx(l) - offset) + "px"; dimV.style.top = -cmToPx(t) + "px"; dimV.style.height = cmToPx(totalH) + "px"; dimV.style.width = "1px";
+    dimV.querySelector(".dim-line").style.height = "100%"; dimV.querySelector(".dim-line").style.width = "1px";
+    dimV.querySelector(".t1").style.top = "0"; dimV.querySelector(".t1").style.left = "-5px"; dimV.querySelector(".t1").style.transform = "rotate(45deg)";
+    dimV.querySelector(".t2").style.bottom = "0"; dimV.querySelector(".t2").style.left = "-5px"; dimV.querySelector(".t2").style.transform = "rotate(45deg)";
+    dimV.querySelector(".dim-ext-label").innerText = totalH; dimV.querySelector(".dim-ext-label").style.top = "50%"; dimV.querySelector(".dim-ext-label").style.left = "0";
     dimV.querySelector(".dim-ext-label").style.transform = "translate(-50%, -50%) rotate(-90deg)";
   }
 
